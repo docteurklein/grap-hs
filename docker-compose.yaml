@@ -1,0 +1,22 @@
+
+services:
+
+    mysql:
+        restart: always
+        image: mysql:5.7
+        working_dir: "$PWD"
+        volumes:
+            - "./:$PWD"
+            - mysql:/var/lib/mysql
+        ports:
+            - '0:3306'
+        command: '--log-bin --binlog-format=row --binlog-row-image=full --server-id=1'
+        environment:
+            MYSQL_ROOT_PASSWORD: root
+            MYSQL_USER: akeneo_pim
+            MYSQL_PASSWORD: akeneo_pim
+            MYSQL_DATABASE: akeneo_pim
+
+
+volumes:
+  mysql: ~

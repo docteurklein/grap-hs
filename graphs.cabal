@@ -1,0 +1,81 @@
+cabal-version:       3.0
+
+name:                graphs
+synopsis:            graph database
+version:             0.0.1.0
+homepage:            https://github.com/docteurklein/graphs
+license:             BSD-3-Clause
+author:              Florian Klein
+maintainer:          Florian Klein
+copyright:           Florian Klein
+category:            graph
+build-type:          Simple
+
+library
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  exposed-modules:     Graphs
+  ghc-options:         -Wall -fno-warn-name-shadowing -Wno-unused-top-binds
+  default-extensions:
+      OverloadedStrings
+    , OverloadedLabels
+    , BlockArguments
+    , DeriveGeneric
+    -- for haskey:
+    , NoDeriveAnyClass
+    , TypeApplications
+    , DataKinds
+    , DerivingStrategies
+    , FlexibleContexts
+    , GADTs
+    , GeneralizedNewtypeDeriving
+    , ImplicitParams
+    , LambdaCase
+    , RankNTypes
+    , ViewPatterns
+    , DuplicateRecordFields
+    , FlexibleInstances
+    , MultiParamTypeClasses
+    , UndecidableInstances
+    , TypeFamilies
+    , ScopedTypeVariables
+
+  build-depends:
+      base
+    , containers
+    , exceptions
+    , haskey
+    , haskey-btree
+    , haskey-mtl
+    , monad-control
+    , mtl
+    , stm-containers
+    , streamly
+    , transformers
+    , transformers-base
+    , binary
+    , text
+    , generic-lens
+    , lens
+    , generic-random
+    , QuickCheck
+    , mysql-haskell
+    , io-streams
+
+executable graphs
+  main-is:            Main.hs
+  hs-source-dirs:     app
+  default-language:   Haskell2010
+  ghc-options:        -threaded -O2
+  build-depends:      base
+                    , graphs
+
+test-suite graphs-tests
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  default-language: Haskell2010
+  ghc-options:      -Wall -threaded
+  build-depends:    base
+                  , graphs
+                  , hedgehog
