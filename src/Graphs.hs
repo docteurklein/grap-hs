@@ -1,4 +1,5 @@
 module Graphs (
+    Triple
 ) where
 
 import Control.Lens ((^.), (%%~))
@@ -26,6 +27,7 @@ import qualified Database.MySQL.BinLog as BinLog
 import qualified Database.MySQL.Base as MySQL
 import Control.Monad.Base (liftBase)
 import Control.Monad.Trans.Control (restoreM, MonadBaseControl (liftBaseWith))
+import qualified Data.Map as Map
 
 data Triple = Triple Text Text Text
  deriving (Generic, Show)
@@ -34,6 +36,11 @@ instance Value Triple
 instance Arbitrary Triple where
   arbitrary = genericArbitrary uniform
   shrink = genericShrink
+
+instance Arbitrary Text where
+  arbitrary = pack <$> arbitrary
+  shrink = fmap pack . shrink . unpack
+
 
 data Schema = Schema {
     objects :: Tree Text Triple
@@ -49,25 +56,13 @@ emptySchema = Schema B.empty B.empty B.empty
 
 insertTriple :: AllocM n => Schema -> Triple -> n Schema
 insertTriple schema triple@(Triple o p s) = do
-    _ <- #objects %%~ B.insert o triple $ schema
-    _ <- #predicates %%~ B.insert p triple $ schema
-    _ <- #subjects %%~ B.insert s triple $ schema
-    pure schema
-
-insertSomeTriples :: App ()
-insertSomeTriples = do
-    triples <- liftIO $ sample' (arbitrary :: Gen Triple)
-    transact_ $ \schema ->
-        foldlM insertTriple schema triples
-        >>= commit_
+    #objects %%~ B.insert o triple $ schema
 
 queryAllTriples :: AllocReaderM n => Schema -> n [(Text, Triple)]
-queryAllTriples root = B.toList (root ^. #subjects)
+queryAllTriples root = B.toList (root ^. #objects)
 
 printTriples :: App ()
-printTriples = do
-    triples <- transactReadOnly queryAllTriples
-    liftIO $ print triples
+printTriples = transactReadOnly queryAllTriples >>= liftIO . print
 
 main :: IO ()
 main = do
@@ -88,7 +83,7 @@ main' fp = do
           , MySQL.ciPassword = "root"
           , MySQL.ciDatabase = "akeneo_pim"
           , MySQL.ciHost = "localhost"
-          , MySQL.ciPort = 49172
+          , MySQL.ciPort = 49153
           }
 
     runApp app conn db defFileStoreConfig
@@ -99,29 +94,6 @@ newtype App a = AppT (ReaderT MySQL.MySQLConn (HaskeyT Schema IO) a)
               deriving (Functor, Applicative, Monad, MonadIO,
                         MonadHaskey Schema, MonadReader MySQL.MySQLConn)
 
-app :: App ()
-app = do
-    insertSomeTriples
-    printTriples
-    conn <- ask
-    liftIO $ BinLog.getLastBinLogTracker conn >>= \ case
-        Just tracker -> do
-            es <- BinLog.decodeRowBinLogEvent =<< BinLog.dumpBinLog conn 1024 tracker False
-            forever $ do
-                Streams.read es >>= \ case
-                    Just (BinLog.RowWriteEvent _timestamp  _tracker table events)  ->
-                        insertEvents []  -- events
-                    Nothing -> return ()
-        Nothing -> error "can't get latest binlog position"
-
-
-insertEvents :: [BinLog.WriteRowsEvent] -> App ()
-insertEvents events = transact_ $ \schema -> do
-    foldlM insertTriple schema $ map e2t events
-    commit_ schema
-    where
-        e2t (BinLog.WriteRowsEvent {writeRowData = d}) = Triple "a" "b" "c"
-
 runApp :: App a
        -> MySQL.MySQLConn
        -> ConcurrentDb Schema
@@ -129,7 +101,38 @@ runApp :: App a
        -> IO a
 runApp (AppT m) r = runHaskeyT (runReaderT m r)
 
-instance Arbitrary Text where
-  arbitrary = pack <$> arbitrary
-  shrink = fmap pack . shrink . unpack
+app :: App ()
+app = do
+    -- insertSomeTriples
+    printTriples
+    conn <- ask
+    liftIO (BinLog.getLastBinLogTracker conn) >>= \ case
+        Just tracker -> do
+            es <- liftIO $ BinLog.decodeRowBinLogEvent =<< BinLog.dumpBinLog conn 1024 tracker False
+            forever $
+                liftIO (Streams.read es) >>= \ case
+                Just (
+                    BinLog.RowWriteEvent _timestamp  _tracker table
+                        (BinLog.WriteRowsEvent { writeRowData = [events]})
+                    )  -> do
+                    liftIO $ print events
+                    insertEvents events
+                Nothing -> return ()
+        Nothing -> error "can't get latest binlog position"
+
+
+insertEvents :: [BinLog.BinLogValue] -> App ()
+insertEvents events = transact_ $ \schema ->
+    foldlM insertTriple schema (map e2t events)
+    >>= commit_
+    where
+        e2t (BinLog.BinLogLong l)  = Triple (pack $ show l) "b" "c"
+        e2t (BinLog.BinLogBytes b) = Triple (pack $ show b) "b" "c"
+
+insertSomeTriples :: App ()
+insertSomeTriples = do
+    triples <- liftIO $ sample' (arbitrary :: Gen Triple)
+    transact_ $ \schema ->
+        foldlM insertTriple schema triples
+        >>= commit_
 
